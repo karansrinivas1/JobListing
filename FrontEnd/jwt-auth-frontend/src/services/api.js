@@ -1,4 +1,3 @@
-
 import axios from 'axios';
 
 const api = axios.create({
@@ -6,12 +5,31 @@ const api = axios.create({
 });
 
 // Automatically add the token to requests if it exists
-api.interceptors.request.use((config) => {
-    const token = localStorage.getItem('token');
-    if (token) {
-        config.headers['Authorization'] = `Bearer ${token}`;
+api.interceptors.request.use(
+    (config) => {
+        const token = localStorage.getItem('token');
+        if (token) {
+            config.headers['Authorization'] = `Bearer ${token}`;
+        }
+        console.log('Request:', config); // Log request details
+        return config;
+    },
+    (error) => {
+        console.error('Request Error:', error);
+        return Promise.reject(error);
     }
-    return config;
-});
+);
+
+// Log responses for debugging
+api.interceptors.response.use(
+    (response) => {
+        console.log('Response:', response); // Log response details
+        return response;
+    },
+    (error) => {
+        console.error('Response Error:', error.response || error);
+        return Promise.reject(error);
+    }
+);
 
 export default api;

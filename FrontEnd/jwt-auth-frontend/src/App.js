@@ -1,38 +1,41 @@
-// src/App.js
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { useSelector } from 'react-redux';
 import HomePage from './App/HOME/HomePage';
 import AboutPage from './App/ABOUT/AboutPage';
 import JobListingsPage from './App/JOBLISTING/JobListingsPage';
 import ContactPage from './App/CONTACT/ContactPage';
 import CompanyShowcasePage from './App/COMPANYSHOWCASE/CompanyShowcasePage';
 import Login from './App/pages/Login';
+import AddJobPage from './App/ADMIN/AddJobPage';
+import EmployeeListPage from './App/ADMIN/EmployeeListPage';
 import MainLayout from './components/MainLayout';
 import ProtectedRoute from './components/ProtectedRoute';
+import RoleBasedRoute from './components/RoleBasedRoute';
 
 function App() {
-    // Function to check if user is authenticated by verifying the token in localStorage
     const isAuthenticated = () => {
         const token = localStorage.getItem('token');
-        // Add more checks if needed, like token expiration
         return Boolean(token);
     };
 
-    // Function to log out by clearing the token and redirecting to login page
     const handleLogout = () => {
-        localStorage.removeItem('token'); // Remove token from local storage
-        window.location.href = '/login'; // Redirect to login page
+        localStorage.removeItem('token');
+        window.location.href = '/login';
     };
+
+    const { user } = useSelector((state) => state.user);
+
+    console.log('App.js - Logged-in User:', user);
 
     return (
         <Router>
             <Routes>
                 {/* Public Route */}
                 <Route path="/login" element={<Login />} />
-                
-                {/* Routes under MainLayout */}
+
+                {/* Protected Routes under MainLayout */}
                 <Route element={<MainLayout onLogout={handleLogout} />}>
-                    {/* Protected Routes */}
                     <Route
                         path="/"
                         element={
@@ -52,9 +55,9 @@ function App() {
                     <Route
                         path="/job-listings"
                         element={
-                            <ProtectedRoute isAuthenticated={isAuthenticated}>
+                            <RoleBasedRoute allowedRoles={[1]}>
                                 <JobListingsPage />
-                            </ProtectedRoute>
+                            </RoleBasedRoute>
                         }
                     />
                     <Route
@@ -71,6 +74,24 @@ function App() {
                             <ProtectedRoute isAuthenticated={isAuthenticated}>
                                 <CompanyShowcasePage />
                             </ProtectedRoute>
+                        }
+                    />
+
+                    {/* Admin-Specific Routes */}
+                    <Route
+                        path="/admin/add-job"
+                        element={
+                            <RoleBasedRoute allowedRoles={[2]}>
+                                <AddJobPage />
+                            </RoleBasedRoute>
+                        }
+                    />
+                    <Route
+                        path="/admin/employees"
+                        element={
+                            <RoleBasedRoute allowedRoles={[2]}>
+                                <EmployeeListPage />
+                            </RoleBasedRoute>
                         }
                     />
                 </Route>

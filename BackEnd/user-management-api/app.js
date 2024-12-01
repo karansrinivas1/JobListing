@@ -13,8 +13,9 @@ const Company = require('./api/models/Image');
 
 // Allow CORS for your frontend's origin
 app.use(cors({
-    origin: 'http://localhost:3001', // Replace with your frontend URL
-    credentials: true, // Enable if you need to include cookies with requests
+    origin: 'http://localhost:3001', // Frontend URL
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
 
@@ -22,6 +23,7 @@ app.use(express.json()); // Parse JSON bodies
 app.use('/user', userRoutes); // User routes
 app.use('/api', jobRoutes);
 app.use('/image',imageRoutes);
+app.use('/job',jobRoutes)
 const uri = 'mongodb+srv://srinivaskar:Mongodb123@cluster0.eza4i.mongodb.net/myDatabase?retryWrites=true&w=majority';
 
 

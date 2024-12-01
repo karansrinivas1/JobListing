@@ -1,228 +1,218 @@
-// routes/userRoutes.js
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const multer = require('multer');
+const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const router = express.Router();
 
 
-// JWT secret and expiration time
-const JWT_SECRET = process.env.JWT_SECRET;
-const JWT_EXPIRATION = process.env.JWT_EXPIRATION || '1h';
-console.log("JWT_SECRET:", process.env.JWT_SECRET); // Should print the JWT secret
-console.log("JWT_EXPIRATION:", process.env.JWT_EXPIRATION); // Should print "1h"
-
-const jwt = require('jsonwebtoken');
-
 // Configure multer for image uploads
 const storage = multer.diskStorage({
-   destination: (req, file, cb) => {
-      cb(null, 'uploads/');
-   },
-   filename: (req, file, cb) => {
-      cb(null, Date.now() + '-' + file.originalname);
-   }
+    destination: (req, file, cb) => {
+        cb(null, 'uploads/');
+    },
+    filename: (req, file, cb) => {
+        cb(null, Date.now() + '-' + file.originalname);
+    }
 });
 const upload = multer({
-   storage: storage,
-   fileFilter: (req, file, cb) => {
-      const allowedTypes = ['image/jpeg', 'image/png', 'image/gif'];
-      if (allowedTypes.includes(file.mimetype)) {
-         cb(null, true);
-      } else {
-         cb(null, false);
-      }
-   }
+    storage: storage,
+    fileFilter: (req, file, cb) => {
+        const allowedTypes = ['image/jpeg', 'image/png', 'image/gif'];
+        if (allowedTypes.includes(file.mimetype)) {
+            cb(null, true);
+        } else {
+            cb(null, false);
+        }
+    }
 });
 
-// Helper function to validate email format
-const isValidEmail = (email) => {
-   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-   return emailRegex.test(email);
+// Helper functions
+const isValidEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+const isValidFullName = (fullName) => /^[a-zA-Z\s]+$/.test(fullName) && fullName.trim().length >= 2;
+const isStrongPassword = (password) => /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/.test(password);
+const isValidUserType = (type) => [1, 2].includes(type); // 1 for employee, 2 for admin
+
+
+const verifyToken = (req, res, next) => {
+   const token = req.headers['authorization']?.split(' ')[1];  // Extract token from header
+   console.log('Received token:', token);  // Log the received token to ensure it's being sent
+   console.log("JWT_SECRET (verifying):", process.env.JWT_SECRET);
+
+   console.log("JWT_SECRET (signing):", process.env.JWT_SECRET);
+
+
+   if (!token) return res.status(401).json({ message: 'Access Denied' });  // Token missing
+
+   jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
+       if (err) {
+           console.log('Token verification failed:', err);  // Log any verification issues
+           return res.status(403).json({ message: 'Invalid Token' });
+       }
+       console.log('Decoded token:', decoded);  // Log decoded user info to verify it's correct
+       req.user = decoded;  // Store decoded user info for further use in routes
+       next();  // Proceed to next middleware or route handler
+   });
 };
 
-// Helper function to validate full name
-const isValidFullName = (fullName) => {
-   return /^[a-zA-Z\s]+$/.test(fullName) && fullName.trim().length >= 2;
-};
-
-// Helper function to enforce a strong password rule
-const isStrongPassword = (password) => {
-   // Strong password: At least 8 characters, one uppercase, one lowercase, one digit, and one special character
-   const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
-   return passwordRegex.test(password);
-};
-
-// Create a new user with optional image upload
+// Create a new user
 router.post('/create', upload.single('image'), async (req, res) => {
+    try {
+        const { fullName, email, password, type } = req.body;
+
+        if (!fullName || !email || !password || type === undefined) {
+            return res.status(400).json({ message: 'Full name, email, password, and type are required.' });
+        }
+
+        if (!isValidEmail(email)) {
+            return res.status(400).json({ message: 'Invalid email format.' });
+        }
+        if (!isValidFullName(fullName)) {
+            return res.status(400).json({ message: 'Full name must contain only letters and be at least 2 characters long.' });
+        }
+        if (!isStrongPassword(password)) {
+            return res.status(400).json({ message: 'Password must be strong (8+ characters, uppercase, lowercase, number, special character).' });
+        }
+        if (!isValidUserType(parseInt(type, 10))) {
+            return res.status(400).json({ message: 'Invalid type. Allowed values are 1 (employee) or 2 (admin).' });
+        }
+
+        const hashedPassword = await bcrypt.hash(password, 10);
+        const newUser = new User({
+            fullName,
+            email,
+            password: hashedPassword,
+            type: parseInt(type, 10),
+            imagePath: req.file ? req.file.path : undefined
+        });
+
+        await newUser.save();
+        res.status(201).json({ message: 'User created successfully.' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Login user
+router.post('/login', async (req, res) => {
+   const { username, password } = req.body; // Assuming username is the email
+
    try {
-       const { fullName, email, password } = req.body;
-
-       // Validate required fields
-       if (!fullName || !email || !password) {
-           return res.status(400).json({ message: 'Full name, email, and password are required.' });
+       // Find the user by email
+       const user = await User.findOne({ email: username });
+       if (!user) {
+           return res.status(404).json({ message: 'User not found' });
        }
 
-       // Validate email format
-       if (!isValidEmail(email)) {
-           return res.status(400).json({ message: 'Invalid email format.' });
+       // Check if the password is correct
+       const isPasswordValid = await bcrypt.compare(password, user.password);
+       if (!isPasswordValid) {
+           return res.status(401).json({ message: 'Invalid password' });
        }
 
-       // Validate full name
-       if (!isValidFullName(fullName)) {
-           return res.status(400).json({ message: 'Full name must contain only letters and be at least 2 characters long.' });
-       }
+       // Create the JWT token
+       // Payload to include in the JWT (e.g., user info)
+       const payload = { id: user._id, email: user.email, type: user.type };
 
-       // Validate password strength
-       if (!isStrongPassword(password)) {
-           return res.status(400).json({ message: 'Password must be at least 8 characters long, with one uppercase letter, one lowercase letter, one number, and one special character.' });
-       }
+// Signing the JWT with a secret and setting the expiration
+       const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1h' });
 
-       // Hash password
-       const hashedPassword = await bcrypt.hash(password, 10);
+       console.log("JWT_SECRET (signing):", process.env.JWT_SECRET);
+       console.log("Token:", token);
+       jwt.verify(token,  process.env.JWT_SECRET, (err, decoded) => {
+         if (err) {
+             console.error('Error verifying token:', err.message);
+         } else {
+             console.log('Decoded token:', decoded);
+         }
+     });
 
-       // Initialize new user data with the image path if an image is uploaded
-       const newUser = new User({
-           fullName,
-           email,
-           password: hashedPassword,
-           imagePath: req.file ? req.file.path : undefined // Only set if image was uploaded
+       // Send the response with the user details and token
+       res.json({
+           message: 'Login successful',
+           token,
+           user: {
+               email: user.email,
+               type: user.type, // 1 for employee, 2 for admin
+               fullName: user.fullName, // Optional
+           },
        });
-
-       await newUser.save();
-       res.status(201).json({ message: 'User created successfully.' });
    } catch (error) {
        res.status(500).json({ error: error.message });
    }
 });
 
-// Update user details (full name and password only)
-router.put('/edit', async (req, res) => {
-   try {
-      const { email, fullName, password } = req.body;
+// Retrieve authenticated user profile
+router.get('/profile', verifyToken, async (req, res) => {
+    try {
+        const user = await User.findById(req.user.id).select('-password');
+        if (!user) return res.status(404).json({ message: 'User not found' });
 
-      // Check if the user exists
-      const user = await User.findOne({ email });
-      if (!user) {
-         return res.status(404).json({ message: 'User not found.' });
-      }
-
-      // Validate full name if provided
-      if (fullName && !isValidFullName(fullName)) {
-         return res.status(400).json({ message: 'Full name must contain only letters and be at least 2 characters long.' });
-      }
-
-      // Validate password if provided
-      if (password && !isStrongPassword(password)) {
-         return res.status(400).json({ message: 'Password must be at least 8 characters long, with one uppercase letter, one lowercase letter, one number, and one special character.' });
-      }
-
-      // Update full name if provided
-      if (fullName) {
-         user.fullName = fullName;
-      }
-
-      // Update password if provided
-      if (password) {
-         user.password = await bcrypt.hash(password, 10);
-      }
-
-      await user.save();
-      res.json({ message: 'User updated successfully.' });
-   } catch (error) {
-      res.status(500).json({ error: error.message });
-   }
+        res.json({
+            fullName: user.fullName,
+            email: user.email,
+            type: user.type === 1 ? 'employee' : 'admin',
+            imagePath: user.imagePath
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
 });
 
-// Delete a user
-router.delete('/delete', async (req, res) => {
-   try {
-      const { email } = req.body;
+// Update user details
+router.put('/edit', verifyToken, async (req, res) => {
+    try {
+        const { fullName, password, type } = req.body;
 
-      const user = await User.findOneAndDelete({ email });
-      if (!user) return res.status(404).json({ message: 'User not found.' });
+        const user = await User.findById(req.user.id);
+        if (!user) return res.status(404).json({ message: 'User not found' });
 
-      res.json({ message: 'User deleted successfully.' });
-   } catch (error) {
-      res.status(500).json({ error: error.message });
-   }
+        if (fullName && !isValidFullName(fullName)) {
+            return res.status(400).json({ message: 'Invalid full name.' });
+        }
+        if (password && !isStrongPassword(password)) {
+            return res.status(400).json({ message: 'Invalid password.' });
+        }
+        if (type !== undefined && !isValidUserType(parseInt(type, 10))) {
+            return res.status(400).json({ message: 'Invalid type. Allowed values are 1 (employee) or 2 (admin).' });
+        }
+
+        if (fullName) user.fullName = fullName;
+        if (password) user.password = await bcrypt.hash(password, 10);
+        if (type !== undefined) user.type = parseInt(type, 10);
+
+        await user.save();
+        res.json({ message: 'User updated successfully.' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
 });
 
 // Retrieve all users
-router.get('/getAll', async (req, res) => {
-   try {
-      const users = await User.find().select('fullName email');
-      res.json(users);
-   } catch (error) {
-      res.status(500).json({ error: error.message });
-   }
+router.get('/getAll', verifyToken, async (req, res) => {
+    try {
+        const users = await User.find().select('-password');
+        res.json(users.map(user => ({
+            ...user.toObject(),
+            type: user.type === 1 ? 'employee' : 'admin'
+        })));
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
 });
 
-// Upload an image separately
-router.post('/uploadImage', upload.single('image'), async (req, res) => {
-   try {
-      const { email } = req.body;
-      if (!req.file) return res.status(400).json({ message: 'Image file is required and must be in JPEG, PNG, or GIF format.' });
+// Delete a user
+router.delete('/delete', verifyToken, async (req, res) => {
+    try {
+        const { email } = req.body;
 
-      const user = await User.findOne({ email });
-      if (!user) return res.status(404).json({ message: 'User not found.' });
+        const user = await User.findOneAndDelete({ email });
+        if (!user) return res.status(404).json({ message: 'User not found.' });
 
-      user.imagePath = req.file.path;
-      await user.save();
-
-      res.json({ message: 'Image uploaded successfully.', path: req.file.path });
-   } catch (error) {
-      res.status(500).json({ error: error.message });
-   }
-});
-
-// Middleware to verify JWT token
-const verifyToken = (req, res, next) => {
-   const token = req.headers['authorization']?.split(" ")[1];
-   if (!token) return res.status(401).json({ message: 'Access Denied' });
-
-   jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
-       if (err) return res.status(403).json({ message: 'Invalid Token' });
-       req.user = decoded;
-       next();
-   });
-};
-
-
-
-// Login route to authenticate user and return JWT token
-router.post('/login', async (req, res) => {
-   const { username, password } = req.body;  // Accept username instead of email
-   try {
-      const user = await User.findOne({ email: username });  // Query based on username
-      if (!user) return res.status(404).json({ message: 'User not found' });
-
-      const isPasswordValid = await bcrypt.compare(password, user.password);
-      if (!isPasswordValid) return res.status(401).json({ message: 'Invalid password' });
-
-      console.log("JWT_SECRET (inside login):", process.env.JWT_SECRET); // Ensure JWT_SECRET is accessible here
-
-      const token = jwt.sign(
-         { id: user._id, username: user.username }, // Token payload updated to include username
-         process.env.JWT_SECRET,
-         { expiresIn: process.env.JWT_EXPIRATION }
-      );
-      res.json({ message: 'Login successful', token });
-   } catch (error) {
-      res.status(500).json({ error: error.message });
-   }
-});
-
-
-// Protected route to retrieve user information
-router.get('/profile', verifyToken, async (req, res) => {
-   try {
-      const user = await User.findById(req.user.id).select('fullName email imagePath');
-      if (!user) return res.status(404).json({ message: 'User not found' });
-      res.json(user);
-   } catch (error) {
-      res.status(500).json({ error: error.message });
-   }
+        res.json({ message: 'User deleted successfully.' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
 });
 
 module.exports = router;
