@@ -1,4 +1,4 @@
-#Job Portal Assignment
+Job Portal 
 #Objective
 Develop a comprehensive job portal that offers a user-friendly interface for job seekers to explore job listings and company profiles. This project focuses on front-end development with React, session management, and dynamic content rendering. The portal will include a login page connected to a previous Node.js assignment, allowing users to log in with usernames and passwords stored on the backend.
 
